@@ -1,23 +1,35 @@
-use std::{
-    io::Read,
-    ops::{Add, Div, Mul, Rem, Sub},
-};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 
-use num_bigint::{BigInt, BigUint, ToBigInt, ToBigUint};
+use num_bigint::{BigInt, BigUint, RandBigInt, ToBigUint};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct PublicKey {
     e: BigUint,
     n: BigUint,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct PrivateKey {
     d: BigUint,
     n: BigUint,
 }
 
-fn is_prime(p: BigUint) -> bool {
+const FIRST_PRIMES: &'static [u64] = &[
+    2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97,
+    101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193,
+    197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307,
+    311, 313, 317, 331, 337, 347, 349,
+];
+
+/// Check if `p` is prime
+///
+/// ```
+/// # use rsa::is_prime;
+/// # use num_bigint::{BigUint, ToBigUint};
+/// assert_eq!(is_prime(BigUint::from(7687u64)), true)
+/// ```
+pub fn is_prime(p: BigUint) -> bool {
     let zero = BigUint::from(0u64);
     let two = BigUint::from(2u64);
     let three = BigUint::from(3u64);
@@ -43,36 +55,90 @@ fn is_prime(p: BigUint) -> bool {
     return true;
 }
 
-const first_primes: &'static [u64] = &[
-    2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97,
-    101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193,
-    197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307,
-    311, 313, 317, 331, 337, 347, 349,
-];
+/// Check if `p` is prime running `k` iterations of Rabin Miller Primality test
+///
+/// ```
+/// # use rsa::is_probable_prime;
+/// # use num_bigint::{BigUint, ToBigUint};
+/// assert_eq!(is_probable_prime(&BigUint::from(7687u64), 128), true)
+/// ```
+pub fn is_probable_prime(p: &BigUint, k: usize) -> bool {
+    let mut max_divisions_by_two = 0u32;
+    let ec = p.clone() - BigUint::from(1u32);
 
-fn generate_prime_candidate(n: u8) -> BigUint {
+    let mut rng = rand::thread_rng();
+
+    let zero = BigUint::from(0u32);
+    let one = BigUint::from(1u32);
+    let two = BigUint::from(2u32);
+
+    let mut div_ec = ec.clone();
+    while div_ec.clone() % &two == zero {
+        div_ec >>= 1;
+        max_divisions_by_two += 1;
+    }
+    assert_eq!(
+        two.clone().pow(max_divisions_by_two).mul(&div_ec).eq(&ec),
+        true
+    );
+
+    let p_clone = p.clone();
+    let trial_composite = move |round_tester: BigUint| -> bool {
+        if round_tester.modpow(&ec, &p_clone).eq(&one) {
+            return false;
+        }
+
+        for i in 0..max_divisions_by_two {
+            if round_tester
+                .modpow(&two.clone().pow(i).mul(&ec), &p_clone)
+                .eq(&ec)
+            {
+                return false;
+            }
+        }
+
+        true
+    };
+
+    let two = BigUint::from(2u32);
+    for _ in 0..k {
+        let round_tester = rng.gen_biguint_range(&two, &p);
+        if trial_composite(round_tester) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn generate_prime_candidate(n: u64) -> BigUint {
     let zero = BigUint::from(0u64);
 
-    loop {
-        let mut p: BigUint = rand::random();
-        p |= (1 << n - 1) | 1;
-        p &= u64::MAX >> (64 - n);
+    let mut rng = rand::thread_rng();
+    'prime: loop {
+        let mut p: BigUint = rng.gen_biguint(n);
+        p.set_bit(n - 1, true);
 
-        for d in first_primes {
-            if p.clone().rem((*d).to_biguint()).eq(&zero) {}
+        for d in FIRST_PRIMES {
+            if p.clone().rem(d.to_biguint().unwrap()).eq(&zero)
+                && d.to_biguint().unwrap().pow(2) <= p
+            {
+                continue 'prime;
+            }
         }
 
         return p;
     }
 }
 
-fn generate_prime(mut n: u8) -> BigUint {
-    if n > 64 {
-        n = 64;
-    }
-
+/// Generate a prime number with `n` bits
+/// ```
+/// let prime = rsa::generate_prime(32);
+/// ```
+pub fn generate_prime(n: u64) -> BigUint {
     let mut p = generate_prime_candidate(n);
-    while !is_prime(p.to_biguint().unwrap()) {
+    // !is_prime(p.to_biguint().unwrap())
+    while !is_probable_prime(&p, 128) {
         p = generate_prime_candidate(n);
     }
 
@@ -85,8 +151,8 @@ fn generate_prime(mut n: u8) -> BigUint {
 /// [`b`]: second number
 ///
 /// ```rust,ignore
+/// # use rsa::egcd;
 /// let result = egcd(15, 8);
-/// assert_eq!(result, (1))
 /// ```
 fn egcd(mut x: BigInt, mut y: BigInt) -> (BigInt, BigInt, BigInt) {
     let zero = BigInt::from(0);
@@ -105,15 +171,14 @@ fn egcd(mut x: BigInt, mut y: BigInt) -> (BigInt, BigInt, BigInt) {
             b0.clone().sub(&q.mul(&b1)),
         );
 
-        // x = std::mem::replace(&mut y, r);
-        // a0 = std::mem::replace(&mut a1, c);
-        // b0 = std::mem::replace(&mut b1, d);
-        x = y;
-        y = r;
-        a0 = a1;
-        a1 = c;
-        b0 = b1;
-        b1 = d;
+        // equivalent to x = y and y = r
+        x = std::mem::replace(&mut y, r);
+
+        // equivalent to a0 = a1 and a1 = c
+        a0 = std::mem::replace(&mut a1, c);
+
+        // equivalent to b0 = b1 and b1 = d
+        b0 = std::mem::replace(&mut b1, d);
     }
 
     (x, a0, b0)
@@ -136,9 +201,14 @@ fn find_coprime(phi: &BigInt) -> Option<(BigInt, BigInt, BigInt)> {
     None
 }
 
-pub fn generate_key() -> (PublicKey, PrivateKey) {
-    let p = generate_prime(48);
-    let q = generate_prime(48);
+/// Generate Public and Private RSA Key with `key_size` bits.
+/// ```
+/// # use rsa::generate_key;
+/// let (public_key, private_key) = generate_key(2048u64);
+/// ```
+pub fn generate_key(key_size: u64) -> (PublicKey, PrivateKey) {
+    let p = generate_prime(key_size);
+    let q = generate_prime(key_size);
 
     let n = p.clone() * &q;
 
@@ -189,6 +259,10 @@ impl PublicKey {
 
         result
     }
+
+    pub fn size(&self) -> u64 {
+        self.n.bits()
+    }
 }
 
 impl PrivateKey {
@@ -212,13 +286,17 @@ impl PrivateKey {
 
         result
     }
+
+    pub fn size(&self) -> u64 {
+        self.n.bits()
+    }
 }
 
 #[cfg(test)]
 mod test {
     use num_bigint::{BigUint, ToBigUint};
 
-    use crate::{generate_key, generate_prime, is_prime, PrivateKey, PublicKey};
+    use crate::{generate_key, generate_prime, is_prime, is_probable_prime, PrivateKey, PublicKey};
 
     #[test]
     fn test_if_2_is_prime() {
@@ -242,29 +320,18 @@ mod test {
 
     #[test]
     fn test_generate_prime() {
-        let p = generate_prime(48);
-        assert_eq!(is_prime(p), true);
+        let p = generate_prime(256);
+        assert_eq!(is_probable_prime(&p, 128), true);
     }
 
     #[test]
     fn test_generate_key() {
-        let (pub_key, priv_key) = generate_key();
-
-        println!("{:?} {:?}", pub_key, priv_key);
+        let (pub_key, priv_key) = generate_key(256);
+        assert_eq!(pub_key.n, priv_key.n);
     }
 
     #[test]
-    fn test_encrypt() {
-        let pub_key = PublicKey {
-            n: BigUint::from(11023u64),
-            e: BigUint::from(11u64),
-        };
-
-        println!("{:?}", pub_key.encrypt("How are you".as_bytes()));
-    }
-
-    #[test]
-    fn test_decrypt() {
+    fn test_encrypt_decrypt() {
         let pub_key = PublicKey {
             n: BigUint::from(11023u64),
             e: BigUint::from(11u64),
@@ -283,8 +350,8 @@ mod test {
     }
 
     #[test]
-    fn test_decrypt_48_bits() {
-        let (pub_key, private_key) = generate_key();
+    fn test_encrypt_and_decrypt_256_bits() {
+        let (pub_key, private_key) = generate_key(256);
 
         let encoded = pub_key.encrypt("How are you?".as_bytes());
         assert_eq!(

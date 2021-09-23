@@ -5,12 +5,45 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "type": "gdb",
+            "request": "launch",
+            "name": "Launch Program",
+            "target": "${workspaceFolder}/target/debug/server",
+            "cwd": "${workspaceRoot}",
+            "valuesFormatting": "parseText"
+        },
+        {
+            "type": "gdb",
+            "request": "launch",
+            "name": "Launch Client",
+            "target": "${workspaceFolder}/target/debug/client",
+            "cwd": "${workspaceRoot}",
+            "valuesFormatting": "parseText"
+        },
+        {
+            "name": "Launch(debug)",
             "type": "lldb",
             "request": "launch",
-            "name": "Debug",
-            "program": "${workspaceFolder}/<your program>",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/target/debug/server",
             "args": [],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false,
+            "sourceLanguages": [
+                "rust"
+            ]
+        },
+        {
+            "name": "Launch(Cargo-debug)",
+            "type": "lldb",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}/target/debug/server",
+            "sourceLanguages": [
+                "rust"
+            ],
         }
     ]
 }

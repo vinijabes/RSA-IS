@@ -1,10 +1,2 @@
-[package]
-name = "rsa-si"
-version = "0.1.0"
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-rand = "0.8.4"
-num-bigint = { version = "0.4", features = ["rand"] }
+[workspace]
+members = ["rsa_lib", "server", "protocol", "client"]
